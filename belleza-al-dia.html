@@ -399,7 +399,8 @@
    Falls back to localStorage for plain JSON values if IndexedDB is unavailable
    (Blobs — the photos — require IndexedDB and simply won't persist in that
    rare fallback case; everything else keeps working). */
-var DB_NAME = "unasAlDiaDB", DB_STORE = "kv", dbPromise = null;
+var DB_NAME = "bellezaAlDiaDB", DB_STORE = "kv", dbPromise = null;
+var KV_PREFIX = DB_NAME + ":";
 function openDB(){
   return new Promise(function(resolve, reject){
     if (!window.indexedDB){ reject(new Error("no-indexeddb")); return; }
@@ -420,7 +421,7 @@ var store = {
         req.onerror = function(){ reject(req.error); };
       });
     }).catch(function(){
-      try { var raw = localStorage.getItem("kv:" + key); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
+      try { var raw = localStorage.getItem(KV_PREFIX + key); return raw ? JSON.parse(raw) : null; } catch(e){ return null; }
     });
   },
   setItem: function(key, value){
@@ -432,7 +433,7 @@ var store = {
         tx.onerror = function(){ reject(tx.error); };
       });
     }).catch(function(){
-      try { localStorage.setItem("kv:" + key, JSON.stringify(value)); } catch(e){}
+      try { localStorage.setItem(KV_PREFIX + key, JSON.stringify(value)); } catch(e){}
       return value;
     });
   },
@@ -444,7 +445,7 @@ var store = {
         tx.oncomplete = function(){ resolve(); };
         tx.onerror = function(){ reject(tx.error); };
       });
-    }).catch(function(){ try { localStorage.removeItem("kv:" + key); } catch(e){} });
+    }).catch(function(){ try { localStorage.removeItem(KV_PREFIX + key); } catch(e){} });
   }
 };
 
