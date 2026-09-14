@@ -254,14 +254,15 @@
   .weekday-chip{width:36px; height:36px; border-radius:50%; border:1px solid var(--border); background:var(--bg); display:grid; place-items:center; font-size:.68rem; font-weight:700; color:var(--ink-soft); cursor:pointer;}
   .weekday-chip.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
 
-  .service-row{display:flex; gap:8px; align-items:center;}
+  .service-row{display:flex; gap:8px; align-items:flex-end;}
   .service-row input[type="text"]{flex:2;}
-  .service-row input[type="number"]{flex:1; min-width:0;}
+  .service-row .svc-field{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .service-row .svc-field input[type="number"]{width:100%;}
   .service-row button{flex-shrink:0;}
   .service-row-group{margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid var(--border);}
   .service-row-group:last-child{border-bottom:none; margin-bottom:0; padding-bottom:0;}
   .service-row-group .svcName{width:100%; margin-bottom:6px;}
-  .service-row-group .service-row input[type="number"]{flex:1;}
+  .svc-field-label{display:block; font-size:11px; color:var(--ink-faint); margin-bottom:3px;}
 
   .backup-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:16px; display:flex; flex-direction:column; gap:10px;}
   .backup-meta{font-size:.82rem; color:var(--ink-soft);}
@@ -1721,10 +1722,11 @@ function openSettingsSheet(){
       var wrap = root.querySelector("#sServices");
       wrap.innerHTML = services.map(function(sv, idx){
         return '<div class="service-row-group" data-idx="' + idx + '">' +
+          '<label class="svc-field-label">Servicio</label>' +
           '<input type="text" class="svcName" placeholder="Nombre del servicio" value="' + sv.name.replace(/"/g,"&quot;") + '">' +
           '<div class="service-row">' +
-            '<input type="number" class="svcDur" min="5" step="5" placeholder="min" value="' + sv.durationMin + '">' +
-            '<input type="number" class="svcPrice" min="0" step="5" placeholder="$" value="' + (sv.price || "") + '">' +
+            '<div class="svc-field"><label class="svc-field-label">Duración (min)</label><input type="number" class="svcDur" min="5" step="5" placeholder="min" value="' + sv.durationMin + '"></div>' +
+            '<div class="svc-field"><label class="svc-field-label">Costo</label><input type="number" class="svcPrice" min="0" step="5" placeholder="$" value="' + (sv.price || "") + '"></div>' +
             '<button type="button" class="icon-btn svcDel" aria-label="Quitar"><svg><use href="#i-x"/></svg></button>' +
           "</div>" +
         "</div>";
