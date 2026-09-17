@@ -150,8 +150,8 @@
   <div class="gate-card">
     <svg class="gate-icon"><use href="#i-shield"/></svg>
     <h1>Panel de Licencias</h1>
-    <p class="muted-text">Solo para el administrador de Uñas al Día. Pega tu token de acceso de GitHub para entrar.</p>
-    <div class="field"><label>Token de GitHub</label><input type="password" id="gatePass" autocomplete="off" placeholder="ghp_..."></div>
+    <p class="muted-text">Escribe la contraseña del panel para entrar.</p>
+    <div class="field"><label>Contraseña</label><input type="password" id="gatePass" autocomplete="off" placeholder="••••••••"></div>
     <p class="error-text" id="gateError"></p>
     <button class="btn btn-primary btn-block" id="gateBtn" style="margin-top:6px;">Entrar</button>
   </div>
@@ -170,6 +170,7 @@
       <div class="stat-card pausados"><div class="num" id="statPausados">0</div><div class="lbl">Pausados</div></div>
     </div>
     <div class="search-row"><input id="searchInput" placeholder="Buscar salón..." autocomplete="off"></div>
+    <button type="button" class="btn btn-secondary btn-block" id="importBtn" hidden>Importar salones desde GitHub (una sola vez)</button>
     <div class="salon-list" id="salonList"></div>
   </main>
 
@@ -184,38 +185,20 @@
 "use strict";
 
 /* ================================================================
-   CONFIGURACIÓN — este panel guarda y lee tus salones directamente
-   en un Gist de GitHub (el mismo licencias.json que ya usa la app
-   de las clientas), usando la API de GitHub en vez de tu propio
-   servidor. No necesitas PHP ni hosting propio para esta versión.
+   CONFIGURACIÓN — este panel guarda y lee tus salones en un archivo
+   licencias.json hospedado en tu propio dominio, a través de un
+   pequeño servicio (api-licencias.php) que también debe estar
+   subido ahí. Ya no depende de GitHub ni de un token que caduque.
 
-   PASO 1 — el ID de tu Gist:
-   Tómalo de la URL de tu Gist. Por ejemplo, si tu liga es:
-     https://gist.githubusercontent.com/Kaiser1970/2f6506866c9829cb620cf7cf0a177f7e/raw/licencias.json
-   el ID es la parte larga después de tu usuario:
-     2f6506866c9829cb620cf7cf0a177f7e
-   Ponlo abajo en GIST_ID.
+   Debes tener subidos, en la MISMA carpeta de tu hosting:
+     - licencias.json
+     - api-licencias.php  (con tu contraseña puesta adentro)
 
-   PASO 2 — un token de acceso de GitHub (esto lo pides TÚ al entrar
-   al panel, nunca se escribe en este archivo):
-     1. Ve a github.com → foto de perfil (arriba a la derecha) →
-        Settings →, hasta abajo del menú izquierdo, "Developer settings".
-     2. "Personal access tokens" → "Tokens (classic)" → "Generate new
-        token (classic)".
-     3. Ponle un nombre (ej. "Panel Uñas al Día"), y en "Select scopes"
-        marca SOLO la casilla "gist" (no marques nada más).
-     4. Genera el token y cópialo (empieza con "ghp_..."). GitHub solo
-        te lo muestra una vez — guárdalo en un lugar seguro por si lo
-        necesitas de nuevo.
-     5. Pega ese token en la pantalla de entrada del panel. Se queda
-        guardado solo en este celular (nunca se sube a ningún lado ni
-        queda escrito en este archivo), así que si cambias de celular
-        vas a necesitar generar uno nuevo (o volver a pegar el mismo).
+   Ajusta API_URL si cambias de dominio o de carpeta.
 ================================================================== */
-var GIST_ID = "2f6506866c9829cb620cf7cf0a177f7e";
-var GIST_FILENAME = "licencias.json";
+var API_URL = "https://www.jehersa.com/licencias/api-licencias.php";
 
-var TOKEN_KEY = "licAdminGhToken";
+var PASS_KEY = "licAdminApiPass";
 var salones = {}; // { nombre: {estatus, notas} }
 
 function esc(s){ return (s == null ? "" : String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -243,36 +226,36 @@ function openSheet(innerHTML, onMount){
   if (onMount) onMount(backdrop);
 }
 
-/* ---------------- GitHub Gist API ---------------- */
-function ghHeaders(){
-  var token = localStorage.getItem(TOKEN_KEY) || "";
-  return {
-    "Authorization": "token " + token,
-    "Accept": "application/vnd.github+json",
-    "Content-Type": "application/json"
-  };
+/* ---------------- API en tu dominio (api-licencias.php) ---------------- */
+function apiPost(body){
+  return fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  }).then(function(res){ return res.json().then(function(data){ return { status: res.status, data: data }; }); });
 }
-function ghLoad(){
-  return fetch("https://api.github.com/gists/" + GIST_ID, { headers: ghHeaders(), cache: "no-store" })
+function apiAuth(password){
+  return apiPost({ action: "auth", password: password });
+}
+function apiLoad(){
+  return fetch(API_URL, { cache: "no-store" })
     .then(function(res){ return res.json().then(function(data){ return { status: res.status, data: data }; }); })
     .then(function(r){
-      if (r.status !== 200) return r;
-      var file = r.data.files && r.data.files[GIST_FILENAME];
-      var parsed = {};
-      if (file && file.content){
-        try { parsed = JSON.parse(file.content) || {}; } catch(e){ parsed = {}; }
-      }
-      return { status: 200, salones: parsed };
+      if (r.status !== 200 || !r.data || !r.data.ok) return { status: r.status };
+      return { status: 200, salones: r.data.salones || {} };
     });
 }
-function ghSave(newSalones){
-  var files = {};
-  files[GIST_FILENAME] = { content: JSON.stringify(newSalones, null, 2) };
-  return fetch("https://api.github.com/gists/" + GIST_ID, {
-    method: "PATCH",
-    headers: ghHeaders(),
-    body: JSON.stringify({ files: files })
-  }).then(function(res){ return res.json().then(function(data){ return { status: res.status, data: data }; }); });
+function apiSave(salon, estatus, notas, oldSalon){
+  var password = localStorage.getItem(PASS_KEY) || "";
+  return apiPost({ action: "set", password: password, salon: salon, estatus: estatus, notas: notas, oldSalon: oldSalon || "" });
+}
+function apiDelete(salon){
+  var password = localStorage.getItem(PASS_KEY) || "";
+  return apiPost({ action: "delete", password: password, salon: salon });
+}
+function apiImport(allSalones){
+  var password = localStorage.getItem(PASS_KEY) || "";
+  return apiPost({ action: "import", password: password, salones: allSalones });
 }
 
 /* ---------------- Render ---------------- */
@@ -285,6 +268,7 @@ function renderList(){
   document.getElementById("statTotal").textContent = total;
   document.getElementById("statActivos").textContent = activos;
   document.getElementById("statPausados").textContent = total - activos;
+  document.getElementById("importBtn").hidden = total !== 0;
 
   var list = document.getElementById("salonList");
   if (!names.length){
@@ -316,22 +300,19 @@ function renderList(){
 
 function handleSaveError(r, btn){
   if (btn) btn.disabled = false;
-  if (r.status === 401){ showToast("Tu token ya no es válido, vuelve a entrar"); logout(); }
-  else if (r.status === 404){ showToast("No se encontró el Gist (revisa GIST_ID)"); }
-  else if (r.status === 403){ showToast("GitHub rechazó el cambio (revisa que el token tenga permiso 'gist')"); }
+  if (r.status === 401){ showToast("Tu contraseña ya no es válida, vuelve a entrar"); logout(); }
+  else if (r.status === 404 || r.status === 0){ showToast("No se pudo conectar con tu servidor (revisa API_URL)"); }
   else { showToast("No se pudo guardar el cambio"); }
 }
 
 function quickToggle(name, btn){
   var current = salones[name];
   var newStatus = current.estatus === "SI" ? "NO" : "SI";
-  var next = Object.assign({}, salones);
-  next[name] = { estatus: newStatus, notas: current.notas || "" };
   btn.disabled = true;
-  ghSave(next).then(function(r){
+  apiSave(name, newStatus, current.notas || "").then(function(r){
     btn.disabled = false;
-    if (r.status === 200){
-      salones = next;
+    if (r.status === 200 && r.data && r.data.ok){
+      salones[name] = { estatus: newStatus, notas: current.notas || "" };
       renderList();
       showToast(newStatus === "SI" ? '"' + name + '" activado' : '"' + name + '" pausado');
     } else { handleSaveError(r, btn); }
@@ -388,14 +369,13 @@ function wireForm(root, existingName){
       fName.focus();
       return;
     }
-    var next = Object.assign({}, salones);
-    if (renamed){ delete next[existingName]; }
-    next[name] = { estatus: chosenStatus, notas: fNotas.value.trim() };
+    var notas = fNotas.value.trim();
     fSave.disabled = true;
-    ghSave(next).then(function(r){
+    apiSave(name, chosenStatus, notas, renamed ? existingName : "").then(function(r){
       fSave.disabled = false;
-      if (r.status === 200){
-        salones = next;
+      if (r.status === 200 && r.data && r.data.ok){
+        if (renamed){ delete salones[existingName]; }
+        salones[name] = { estatus: chosenStatus, notas: notas };
         renderList();
         closeSheet();
         showToast(renamed ? 'Renombrado a "' + name + '"' : (existingName ? "Cambios guardados" : '"' + name + '" agregado'));
@@ -406,13 +386,11 @@ function wireForm(root, existingName){
   if (fDelete){
     fDelete.addEventListener("click", function(){
       if (!confirm('¿Eliminar "' + existingName + '" del registro? Esto la bloqueará por completo.')) return;
-      var next = Object.assign({}, salones);
-      delete next[existingName];
       fDelete.disabled = true;
-      ghSave(next).then(function(r){
+      apiDelete(existingName).then(function(r){
         fDelete.disabled = false;
-        if (r.status === 200){
-          salones = next;
+        if (r.status === 200 && r.data && r.data.ok){
+          delete salones[existingName];
           renderList();
           closeSheet();
           showToast('"' + existingName + '" eliminado');
@@ -421,6 +399,49 @@ function wireForm(root, existingName){
     });
   }
 }
+
+/* ---------------- Importar desde el Gist viejo (una sola vez) ---------------- */
+var OLD_GIST_ID = "2f6506866c9829cb620cf7cf0a177f7e";
+var OLD_GIST_FILENAME = "licencias.json";
+function importFromGithub(){
+  var token = prompt("Pega aquí tu token de GitHub de antes (el mismo 'ghp_...' que usabas para entrar al panel viejo). Esto solo se usa una vez, para traer tus salones ya guardados.");
+  if (!token) return;
+  var btn = document.getElementById("importBtn");
+  btn.disabled = true;
+  btn.textContent = "Importando...";
+  fetch("https://api.github.com/gists/" + OLD_GIST_ID, {
+    headers: { "Authorization": "token " + token, "Accept": "application/vnd.github+json" },
+    cache: "no-store"
+  }).then(function(res){ return res.json().then(function(data){ return { status: res.status, data: data }; }); })
+    .then(function(r){
+      if (r.status !== 200){ throw new Error("gist-" + r.status); }
+      var file = r.data.files && r.data.files[OLD_GIST_FILENAME];
+      var parsed = {};
+      if (file && file.content){ try { parsed = JSON.parse(file.content) || {}; } catch(e){ parsed = {}; } }
+      var count = Object.keys(parsed).length;
+      if (!count){ throw new Error("empty"); }
+      return apiImport(parsed);
+    })
+    .then(function(r){
+      btn.disabled = false;
+      btn.textContent = "Importar salones desde GitHub (una sola vez)";
+      if (r.status === 200 && r.data && r.data.ok){
+        salones = r.data.salones || {};
+        renderList();
+        showToast("Salones importados correctamente");
+      } else {
+        showToast("No se pudo guardar en tu servidor");
+      }
+    })
+    .catch(function(e){
+      btn.disabled = false;
+      btn.textContent = "Importar salones desde GitHub (una sola vez)";
+      if (e && e.message === "empty"){ showToast("El Gist no tiene salones guardados"); }
+      else if (e && e.message === "gist-401"){ showToast("Ese token de GitHub no es válido"); }
+      else { showToast("No se pudo conectar con GitHub"); }
+    });
+}
+document.getElementById("importBtn").addEventListener("click", importFromGithub);
 
 /* ---------------- Auth / boot ---------------- */
 function showApp(){
@@ -435,31 +456,35 @@ function showGate(msg){
   document.getElementById("gatePass").focus();
 }
 function logout(){
-  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(PASS_KEY);
   showGate("");
 }
 
-function tryEnter(token){
+function tryEnter(password){
   var btn = document.getElementById("gateBtn");
   btn.disabled = true;
-  localStorage.setItem(TOKEN_KEY, token);
-  ghLoad().then(function(r){
-    btn.disabled = false;
-    if (r.status === 200){ salones = r.salones; showApp(); }
-    else if (r.status === 401){ localStorage.removeItem(TOKEN_KEY); showGate("Token inválido"); }
-    else if (r.status === 404){ localStorage.removeItem(TOKEN_KEY); showGate("No se encontró el Gist (revisa GIST_ID en el archivo)"); }
-    else { localStorage.removeItem(TOKEN_KEY); showGate("No se pudo conectar con GitHub"); }
+  apiAuth(password).then(function(r){
+    if (r.status !== 200 || !r.data || !r.data.ok){
+      btn.disabled = false;
+      showGate(r.status === 401 ? "Contraseña incorrecta" : "No se pudo conectar con tu servidor");
+      return;
+    }
+    localStorage.setItem(PASS_KEY, password);
+    apiLoad().then(function(r2){
+      btn.disabled = false;
+      if (r2.status === 200){ salones = r2.salones; showApp(); }
+      else { showGate("No se pudo cargar la lista de salones"); }
+    }).catch(function(){ btn.disabled = false; showGate("Sin conexión — inténtalo de nuevo"); });
   }).catch(function(){
     btn.disabled = false;
-    localStorage.removeItem(TOKEN_KEY);
     showGate("Sin conexión — inténtalo de nuevo");
   });
 }
 
 document.getElementById("gateBtn").addEventListener("click", function(){
-  var token = document.getElementById("gatePass").value.trim();
-  if (!token) return;
-  tryEnter(token);
+  var password = document.getElementById("gatePass").value.trim();
+  if (!password) return;
+  tryEnter(password);
 });
 document.getElementById("gatePass").addEventListener("keydown", function(e){
   if (e.key === "Enter") document.getElementById("gateBtn").click();
@@ -468,11 +493,11 @@ document.getElementById("logoutBtn").addEventListener("click", logout);
 document.getElementById("fabBtn").addEventListener("click", openAddSheet);
 document.getElementById("searchInput").addEventListener("input", renderList);
 
-var savedToken = localStorage.getItem(TOKEN_KEY);
-if (savedToken){
-  ghLoad().then(function(r){
+var savedPass = localStorage.getItem(PASS_KEY);
+if (savedPass){
+  apiLoad().then(function(r){
     if (r.status === 200){ salones = r.salones; showApp(); }
-    else { localStorage.removeItem(TOKEN_KEY); showGate(""); }
+    else { showGate(""); }
   }).catch(function(){ showGate(""); });
 } else {
   showGate("");
