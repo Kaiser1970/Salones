@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico de licencias</title>
+<style>
+  body{font-family:system-ui,sans-serif; padding:20px; background:#f5f5f5; color:#222; font-size:15px; line-height:1.5;}
+  .box{background:#fff; border:1px solid #ddd; border-radius:10px; padding:16px; margin-bottom:16px;}
+  .ok{border-color:#3F8563; background:#E1F0E7;}
+  .fail{border-color:#C4423F; background:#FBE3E1;}
+  h2{font-size:1rem; margin:0 0 8px;}
+  pre{white-space:pre-wrap; word-break:break-all; background:#00000010; padding:8px; border-radius:6px; font-size:13px;}
+  button{padding:10px 16px; border-radius:8px; border:none; background:#333; color:#fff; font-size:14px; margin-bottom:16px;}
+</style>
+</head>
+<body>
+<h1>Diagnóstico de conexión a jehersa.com</h1>
+<button id="run">Volver a probar</button>
+<div id="results"></div>
+
+<script>
+var URL_PHP = "https://www.jehersa.com/licencias/licencias-publicas.php";
+var URL_JSON = "https://www.jehersa.com/licencias/licencias.json";
+
+function box(title, ok, details){
+  return '<div class="box ' + (ok ? "ok" : "fail") + '"><h2>' + (ok ? "✅ " : "❌ ") + title + '</h2><pre>' + details + '</pre></div>';
+}
+
+async function probar(url, nombre){
+  var out = "";
+  try {
+    var t0 = performance.now();
+    var res = await fetch(url, { cache: "no-store" });
+    var t1 = performance.now();
+    var headersText = "";
+    res.headers.forEach(function(v, k){ headersText += k + ": " + v + "\n"; });
+    var text = await res.text();
+    out += "URL: " + url + "\n";
+    out += "Status HTTP: " + res.status + "\n";
+    out += "Tiempo: " + Math.round(t1 - t0) + " ms\n";
+    out += "Encabezados de respuesta:\n" + (headersText || "(ninguno visible)") + "\n";
+    out += "Contenido (primeros 300 caracteres):\n" + text.slice(0, 300);
+    return { ok: res.ok, html: box(nombre + " — conexión exitosa", true, out) };
+  } catch (e) {
+    out += "URL: " + url + "\n";
+    out += "Error: " + (e && e.message ? e.message : String(e)) + "\n";
+    out += "\nEsto casi siempre significa que el navegador BLOQUEÓ la respuesta por falta de permiso CORS, o que no se pudo conectar al servidor.";
+    return { ok: false, html: box(nombre + " — la conexión FALLÓ", false, out) };
+  }
+}
+
+async function revisarPagina(pageUrl, nombre){
+  try {
+    var res = await fetch(pageUrl, { cache: "no-store" });
+    var html = await res.text();
+    var m = html.match(/LICENSE_SHEET_CSV_URL\s*=\s*"([^"]+)"/);
+    if (m){
+      var usaNueva = m[1].indexOf("licencias-publicas.php") !== -1;
+      return box(nombre + " — dirección guardada en el código: " + (usaNueva ? "✅ correcta (php nuevo)" : "⚠️ VIEJA (json directo)"), usaNueva,
+        "Archivo revisado: " + pageUrl + "\n\nDirección que tiene guardada:\n" + m[1]);
+    }
+    return box(nombre + " — no se encontró la variable", false, "No se encontró LICENSE_SHEET_CSV_URL en " + pageUrl);
+  } catch(e){
+    return box(nombre + " — error al leer el archivo", false, String(e && e.message ? e.message : e));
+  }
+}
+
+async function correrTodo(){
+  document.getElementById("results").innerHTML = "<p>Probando...</p>";
+  var r1 = await probar(URL_PHP, "Archivo PHP (licencias-publicas.php)");
+  var r2 = await probar(URL_JSON, "Archivo JSON directo (licencias.json)");
+  var r3 = await revisarPagina(location.href.replace("diagnostico.html","") + "index.html", "index.html (Uñas al Día)");
+  var r4 = await revisarPagina(location.href.replace("diagnostico.html","") + "belleza-al-dia.html", "belleza-al-dia.html");
+  var r5 = await revisarPagina(location.href.replace("diagnostico.html","") + "barber-shop-al-dia.html", "barber-shop-al-dia.html");
+  document.getElementById("results").innerHTML = r1.html + r2.html + r3 + r4 + r5;
+}
+
+document.getElementById("run").addEventListener("click", correrTodo);
+correrTodo();
+</script>
+</body>
+</html>
